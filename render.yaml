@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: series-worker-flask
+    env: docker
+    plan: free
+    dockerCommand: python start.py

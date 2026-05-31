@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv
+venv/
+ENV/
+env/
+.env
+
+# Project specific
+data/
+data/uploads/
+data/tmp_*
+data/config.json
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
