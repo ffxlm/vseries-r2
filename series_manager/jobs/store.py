@@ -258,6 +258,24 @@ def delete_job(task_id):
     return True
 
 
+def delete_jobs_by_status(status):
+    print(f"DEBUG: delete_jobs_by_status called for status: {status}")
+    db = get_db()
+    if db is None:
+        print("ERROR: db is None in delete_jobs_by_status")
+        return False
+    if status not in TERMINAL_STATUSES:
+        print(f"ERROR: status {status} not in TERMINAL_STATUSES: {TERMINAL_STATUSES}")
+        return False
+    try:
+        result = db.tasks.delete_many({"status": status})
+        print(f"DEBUG: deleted {result.deleted_count} jobs with status {status}")
+        return True
+    except Exception as e:
+        print(f"ERROR: Exception in delete_jobs_by_status: {e}")
+        return False
+
+
 def should_cancel(task_id):
     job = get_job(task_id)
     return bool(job.get("cancel_requested")) or job.get("status") == "canceled"

@@ -1,12 +1,20 @@
 import os
 import shutil
 import uuid
+import traceback
 
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
 from series_manager.db import get_db
-from series_manager.jobs.store import create_job, delete_job, get_job, list_jobs, request_cancel
+from series_manager.jobs.store import (
+    create_job,
+    delete_job,
+    delete_jobs_by_status,
+    get_job,
+    list_jobs,
+    request_cancel,
+)
 from series_manager.jobs.worker import terminate_task
 from series_manager.services.r2_service import (
     create_series_folder,
@@ -178,13 +186,27 @@ def cancel_job(task_id):
 @api_bp.route("/jobs/<task_id>", methods=["DELETE"])
 def delete_job_api(task_id):
     if get_job_or_404(task_id) is None:
-        return jsonify({"error": "Job not found"}), 404
+        return jsonify({"error": "Job not found", "status": "not_found"}), 404
     terminate_task(task_id)
     tmp_dir = f"data/tmp_{task_id}"
     if os.path.exists(tmp_dir):
         shutil.rmtree(tmp_dir, ignore_errors=True)
     delete_job(task_id)
     return jsonify({"message": "Job stopped, cleaned up, and deleted"})
+
+
+@api_bp.route("/jobs/clear/<status>", methods=["POST"])
+def delete_jobs_by_status_api(status):
+    print(f"DEBUG: Attempting to clear jobs with status: {status}")
+    try:
+        if delete_jobs_by_status(status):
+            return jsonify({"message": f"All {status} jobs cleared"})
+        return jsonify({"error": "Invalid status or failed to clear"}), 400
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        print(f"ERROR: Failed to clear jobs: {e}\n{error_trace}")
+        return jsonify({"error": str(e), "trace": error_trace}), 500
+
 
 
 @api_bp.route("/task/<task_id>/delete", methods=["POST"])
