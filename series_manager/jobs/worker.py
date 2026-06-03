@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from urllib.parse import quote
 
 from werkzeug.utils import secure_filename
@@ -141,54 +142,52 @@ def process_video_job(job):
     try:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         os.makedirs(tmp_dir, exist_ok=True)
-        output_m3u8 = os.path.join(tmp_dir, "playlist.m3u8")
+
+        random_prefix = uuid.uuid4().hex[:8]
+        random_hash = uuid.uuid4().hex
+        m3u8_filename = f"playlist_{random_prefix}.m3u8"
+        segment_filename = f"seg_{random_prefix}_%03d.ts"
+        
+        output_m3u8 = os.path.join(tmp_dir, m3u8_filename)
         update_job(task_id, stage="probe", message="Analyzing source video", progress="1%", progress_value=1)
         heartbeat.beat(force=True)
         total_duration = get_video_duration(m3u8_url)
 
         cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            m3u8_url,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "slow",
-            "-crf",
-            "22",
-            "-r",
-            "30",
-            "-profile:v",
-            "high",
-            "-pix_fmt",
-            "yuv420p",
-            "-vf",
-            "scale='min(720,iw)':-2",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-ar",
-            "48000",
-            "-g",
-            "90",
-            "-keyint_min",
-            "90",
-            "-sc_threshold",
-            "0",
-            "-hls_time",
-            "3",
-            "-hls_playlist_type",
-            "vod",
-            "-hls_flags",
-            "independent_segments",
-            "-hls_segment_type",
-            "mpegts",
-            "-hls_segment_filename",
-            os.path.join(tmp_dir, "segment_%03d.ts"),
-            "-start_number",
-            "0",
+            "ffmpeg", "-y",
+            # --- ส่วนที่ 1: ระบบกันเน็ตหลุด (Network Resilience) ---
+            "-reconnect", "1",
+            "-reconnect_at_eof", "1",
+            "-reconnect_streamed", "1",
+            "-reconnect_delay_max", "5",
+            "-i", m3u8_url,
+
+            # --- ส่วนที่ 2: การตั้งค่าภาพและเลี่ยงการตรวจจับ (Video & Anti-AI) ---
+            "-c:v", "libx264",
+            "-preset", "veryfast",  # เน้นความเร็ว
+            "-crf", "23",           # คุมคุณภาพภาพ
+            "-r", "30",
+            "-profile:v", "high",
+            "-pix_fmt", "yuv420p",
+            "-vf", "crop=iw*0.99:ih*0.99, scale='min(720,iw)':-2, setpts=PTS/1.01", # Zoom 1% และ Speed 1.01x
+            "-metadata", f"comment={random_hash}", # ใส่รหัสสุ่มใน Metadata
+
+            # --- ส่วนที่ 3: ระบบเสียงและการซิงค์ (Audio & Sync) ---
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "48000",
+            "-af", "aresample=async=1, atempo=1.01", # ซิงค์เสียงให้ตรงภาพ และเร่งสปีดเสียง 1.01x
+
+            # --- ส่วนที่ 4: การตัดแบ่งไฟล์ HLS (HLS Slicing) ---
+            "-g", "90",
+            "-keyint_min", "90",
+            "-sc_threshold", "0",
+            "-hls_time", "3",
+            "-hls_playlist_type", "vod",
+            "-hls_flags", "independent_segments",
+            "-hls_segment_type", "mpegts",
+            "-hls_segment_filename", os.path.join(tmp_dir, segment_filename),
+            "-start_number", "0",
             output_m3u8,
         ]
 
@@ -272,7 +271,7 @@ def process_video_job(job):
                 message=f"Uploading: {uploaded_mb} MB / {total_mb} MB",
             )
 
-        playlist_key = f"series/{series_name}/{ep_name}/playlist.m3u8"
+        playlist_key = f"series/{series_name}/{ep_name}/{m3u8_filename}"
         
         # --- Automated Episode Ingestion ---
         try:
